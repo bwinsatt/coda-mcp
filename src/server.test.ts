@@ -28,6 +28,9 @@ describe("MCP Server", () => {
       expect.objectContaining({ name: "coda_duplicate_page" }),
       expect.objectContaining({ name: "coda_rename_page" }),
       expect.objectContaining({ name: "coda_resolve_link" }),
+      expect.objectContaining({ name: "coda_list_rows" }),
+      expect.objectContaining({ name: "coda_update_row" }),
+      expect.objectContaining({ name: "coda_upsert_rows" }),
     ]);
   });
 });
@@ -807,6 +810,552 @@ describe("coda_resolve_link", () => {
       url: "https://coda.io/d/nonexistent-doc-456",
     });
     expect(result.content).toEqual([{ type: "text", text: "Failed to resolve link: Error: Resource not found" }]);
+    expect(result.isError).toBe(true);
+  });
+});
+
+describe("coda_list_rows", () => {
+  it("should list rows successfully with minimal parameters", async () => {
+    vi.mocked(sdk.listRows).mockResolvedValue({
+      data: {
+        items: [
+          { id: "row-123", name: "Row 1", values: { col1: "value1", col2: 42 } },
+          { id: "row-456", name: "Row 2", values: { col1: "value2", col2: 100 } },
+        ],
+      },
+    } as any);
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_list_rows", {
+      docId: "doc-123",
+      tableIdOrName: "table-456",
+    });
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          items: [
+            { id: "row-123", name: "Row 1", values: { col1: "value1", col2: 42 } },
+            { id: "row-456", name: "Row 2", values: { col1: "value2", col2: 100 } },
+          ],
+        }),
+      },
+    ]);
+    expect(sdk.listRows).toHaveBeenCalledWith({
+      path: { docId: "doc-123", tableIdOrName: "table-456" },
+      query: expect.any(Object),
+      throwOnError: true,
+    });
+  });
+
+  it("should list rows with query filter", async () => {
+    vi.mocked(sdk.listRows).mockResolvedValue({
+      data: {
+        items: [{ id: "row-123", name: "Filtered Row", values: { status: "active" } }],
+      },
+    } as any);
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_list_rows", {
+      docId: "doc-123",
+      tableIdOrName: "table-456",
+      query: "status:active",
+    });
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          items: [{ id: "row-123", name: "Filtered Row", values: { status: "active" } }],
+        }),
+      },
+    ]);
+    expect(sdk.listRows).toHaveBeenCalledWith({
+      path: { docId: "doc-123", tableIdOrName: "table-456" },
+      query: expect.objectContaining({ query: "status:active" }),
+      throwOnError: true,
+    });
+  });
+
+  it("should list rows with sorting and value format", async () => {
+    vi.mocked(sdk.listRows).mockResolvedValue({
+      data: {
+        items: [
+          { id: "row-789", name: "Sorted Row", values: { data: ["item1", "item2"] } },
+        ],
+      },
+    } as any);
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_list_rows", {
+      docId: "doc-123",
+      tableIdOrName: "table-456",
+      sortBy: "updatedAt",
+      valueFormat: "simpleWithArrays",
+    });
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          items: [{ id: "row-789", name: "Sorted Row", values: { data: ["item1", "item2"] } }],
+        }),
+      },
+    ]);
+    expect(sdk.listRows).toHaveBeenCalledWith({
+      path: { docId: "doc-123", tableIdOrName: "table-456" },
+      query: expect.objectContaining({
+        sortBy: "updatedAt",
+        valueFormat: "simpleWithArrays",
+      }),
+      throwOnError: true,
+    });
+  });
+
+  it("should list rows with pagination", async () => {
+    vi.mocked(sdk.listRows).mockResolvedValue({
+      data: {
+        items: [{ id: "row-page2", name: "Row from page 2", values: {} }],
+        nextPageToken: "next-token-123",
+      },
+    } as any);
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_list_rows", {
+      docId: "doc-123",
+      tableIdOrName: "table-456",
+      limit: 10,
+      pageToken: "current-token",
+    });
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          items: [{ id: "row-page2", name: "Row from page 2", values: {} }],
+          nextPageToken: "next-token-123",
+        }),
+      },
+    ]);
+    expect(sdk.listRows).toHaveBeenCalledWith({
+      path: { docId: "doc-123", tableIdOrName: "table-456" },
+      query: expect.objectContaining({
+        limit: 10,
+        pageToken: "current-token",
+      }),
+      throwOnError: true,
+    });
+  });
+
+  it("should list only visible rows", async () => {
+    vi.mocked(sdk.listRows).mockResolvedValue({
+      data: {
+        items: [{ id: "row-visible", name: "Visible Row", values: { col1: "visible" } }],
+      },
+    } as any);
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_list_rows", {
+      docId: "doc-123",
+      tableIdOrName: "table-456",
+      visibleOnly: true,
+    });
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          items: [{ id: "row-visible", name: "Visible Row", values: { col1: "visible" } }],
+        }),
+      },
+    ]);
+    expect(sdk.listRows).toHaveBeenCalledWith({
+      path: { docId: "doc-123", tableIdOrName: "table-456" },
+      query: expect.objectContaining({ visibleOnly: true }),
+      throwOnError: true,
+    });
+  });
+
+  it("should show error if list rows throws", async () => {
+    vi.mocked(sdk.listRows).mockRejectedValue(new Error("Table not found"));
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_list_rows", {
+      docId: "doc-123",
+      tableIdOrName: "table-456",
+    });
+    expect(result.content).toEqual([{ type: "text", text: "Failed to list rows: Error: Table not found" }]);
+    expect(result.isError).toBe(true);
+  });
+});
+
+describe("coda_update_row", () => {
+  it("should update row successfully with single cell", async () => {
+    vi.mocked(sdk.updateRow).mockResolvedValue({
+      data: {
+        id: "row-123",
+        requestId: "req-789",
+      },
+    } as any);
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_update_row", {
+      docId: "doc-123",
+      tableIdOrName: "table-456",
+      rowIdOrName: "row-123",
+      cells: [{ column: "col1", value: "updated value" }],
+    });
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          id: "row-123",
+          requestId: "req-789",
+        }),
+      },
+    ]);
+    expect(sdk.updateRow).toHaveBeenCalledWith({
+      path: {
+        docId: "doc-123",
+        tableIdOrName: "table-456",
+        rowIdOrName: "row-123",
+      },
+      body: {
+        row: {
+          cells: [{ column: "col1", value: "updated value" }],
+        },
+      },
+      query: { disableParsing: undefined },
+      throwOnError: true,
+    });
+  });
+
+  it("should update row with multiple cells of different types", async () => {
+    vi.mocked(sdk.updateRow).mockResolvedValue({
+      data: {
+        id: "row-456",
+        requestId: "req-890",
+      },
+    } as any);
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_update_row", {
+      docId: "doc-123",
+      tableIdOrName: "table-456",
+      rowIdOrName: "row-456",
+      cells: [
+        { column: "name", value: "John Doe" },
+        { column: "age", value: 30 },
+        { column: "active", value: true },
+        { column: "tags", value: ["tag1", "tag2"] },
+      ],
+    });
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          id: "row-456",
+          requestId: "req-890",
+        }),
+      },
+    ]);
+    expect(sdk.updateRow).toHaveBeenCalledWith({
+      path: {
+        docId: "doc-123",
+        tableIdOrName: "table-456",
+        rowIdOrName: "row-456",
+      },
+      body: {
+        row: {
+          cells: [
+            { column: "name", value: "John Doe" },
+            { column: "age", value: 30 },
+            { column: "active", value: true },
+            { column: "tags", value: ["tag1", "tag2"] },
+          ],
+        },
+      },
+      query: { disableParsing: undefined },
+      throwOnError: true,
+    });
+  });
+
+  it("should update row with disableParsing option", async () => {
+    vi.mocked(sdk.updateRow).mockResolvedValue({
+      data: {
+        id: "row-789",
+        requestId: "req-991",
+      },
+    } as any);
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_update_row", {
+      docId: "doc-123",
+      tableIdOrName: "table-456",
+      rowIdOrName: "row-789",
+      cells: [{ column: "rawData", value: "2024-01-01" }],
+      disableParsing: true,
+    });
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          id: "row-789",
+          requestId: "req-991",
+        }),
+      },
+    ]);
+    expect(sdk.updateRow).toHaveBeenCalledWith({
+      path: {
+        docId: "doc-123",
+        tableIdOrName: "table-456",
+        rowIdOrName: "row-789",
+      },
+      body: {
+        row: {
+          cells: [{ column: "rawData", value: "2024-01-01" }],
+        },
+      },
+      query: { disableParsing: true },
+      throwOnError: true,
+    });
+  });
+
+  it("should show error if update row throws", async () => {
+    vi.mocked(sdk.updateRow).mockRejectedValue(new Error("Permission denied"));
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_update_row", {
+      docId: "doc-123",
+      tableIdOrName: "table-456",
+      rowIdOrName: "row-123",
+      cells: [{ column: "col1", value: "test" }],
+    });
+    expect(result.content).toEqual([{ type: "text", text: "Failed to update row: Error: Permission denied" }]);
+    expect(result.isError).toBe(true);
+  });
+
+  it("should show error if update row throws due to invalid column", async () => {
+    vi.mocked(sdk.updateRow).mockRejectedValue(new Error("Column not found"));
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_update_row", {
+      docId: "doc-123",
+      tableIdOrName: "table-456",
+      rowIdOrName: "row-123",
+      cells: [{ column: "nonexistent_col", value: "test" }],
+    });
+    expect(result.content).toEqual([{ type: "text", text: "Failed to update row: Error: Column not found" }]);
+    expect(result.isError).toBe(true);
+  });
+});
+
+describe("coda_upsert_rows", () => {
+  it("should insert rows successfully without key columns", async () => {
+    vi.mocked(sdk.upsertRows).mockResolvedValue({
+      data: {
+        requestId: "req-123",
+        addedRowIds: ["row-new-1", "row-new-2"],
+      },
+    } as any);
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_upsert_rows", {
+      docId: "doc-123",
+      tableIdOrName: "table-456",
+      rows: [
+        { cells: [{ column: "name", value: "Alice" }] },
+        { cells: [{ column: "name", value: "Bob" }] },
+      ],
+    });
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          requestId: "req-123",
+          addedRowIds: ["row-new-1", "row-new-2"],
+        }),
+      },
+    ]);
+    expect(sdk.upsertRows).toHaveBeenCalledWith({
+      path: {
+        docId: "doc-123",
+        tableIdOrName: "table-456",
+      },
+      body: {
+        rows: [
+          { cells: [{ column: "name", value: "Alice" }] },
+          { cells: [{ column: "name", value: "Bob" }] },
+        ],
+        keyColumns: undefined,
+      },
+      query: { disableParsing: undefined },
+      throwOnError: true,
+    });
+  });
+
+  it("should upsert rows with key columns", async () => {
+    vi.mocked(sdk.upsertRows).mockResolvedValue({
+      data: {
+        requestId: "req-456",
+      },
+    } as any);
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_upsert_rows", {
+      docId: "doc-123",
+      tableIdOrName: "table-456",
+      rows: [
+        {
+          cells: [
+            { column: "email", value: "alice@example.com" },
+            { column: "name", value: "Alice Updated" },
+          ],
+        },
+      ],
+      keyColumns: ["email"],
+    });
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          requestId: "req-456",
+        }),
+      },
+    ]);
+    expect(sdk.upsertRows).toHaveBeenCalledWith({
+      path: {
+        docId: "doc-123",
+        tableIdOrName: "table-456",
+      },
+      body: {
+        rows: [
+          {
+            cells: [
+              { column: "email", value: "alice@example.com" },
+              { column: "name", value: "Alice Updated" },
+            ],
+          },
+        ],
+        keyColumns: ["email"],
+      },
+      query: { disableParsing: undefined },
+      throwOnError: true,
+    });
+  });
+
+  it("should insert rows with multiple cells of different types", async () => {
+    vi.mocked(sdk.upsertRows).mockResolvedValue({
+      data: {
+        requestId: "req-789",
+        addedRowIds: ["row-new-1"],
+      },
+    } as any);
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_upsert_rows", {
+      docId: "doc-123",
+      tableIdOrName: "table-456",
+      rows: [
+        {
+          cells: [
+            { column: "name", value: "John Doe" },
+            { column: "age", value: 30 },
+            { column: "active", value: true },
+            { column: "tags", value: ["tag1", "tag2"] },
+          ],
+        },
+      ],
+    });
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          requestId: "req-789",
+          addedRowIds: ["row-new-1"],
+        }),
+      },
+    ]);
+    expect(sdk.upsertRows).toHaveBeenCalledWith({
+      path: {
+        docId: "doc-123",
+        tableIdOrName: "table-456",
+      },
+      body: {
+        rows: [
+          {
+            cells: [
+              { column: "name", value: "John Doe" },
+              { column: "age", value: 30 },
+              { column: "active", value: true },
+              { column: "tags", value: ["tag1", "tag2"] },
+            ],
+          },
+        ],
+        keyColumns: undefined,
+      },
+      query: { disableParsing: undefined },
+      throwOnError: true,
+    });
+  });
+
+  it("should upsert rows with disableParsing option", async () => {
+    vi.mocked(sdk.upsertRows).mockResolvedValue({
+      data: {
+        requestId: "req-991",
+        addedRowIds: ["row-new-1"],
+      },
+    } as any);
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_upsert_rows", {
+      docId: "doc-123",
+      tableIdOrName: "table-456",
+      rows: [{ cells: [{ column: "rawData", value: "2024-01-01" }] }],
+      disableParsing: true,
+    });
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          requestId: "req-991",
+          addedRowIds: ["row-new-1"],
+        }),
+      },
+    ]);
+    expect(sdk.upsertRows).toHaveBeenCalledWith({
+      path: {
+        docId: "doc-123",
+        tableIdOrName: "table-456",
+      },
+      body: {
+        rows: [{ cells: [{ column: "rawData", value: "2024-01-01" }] }],
+        keyColumns: undefined,
+      },
+      query: { disableParsing: true },
+      throwOnError: true,
+    });
+  });
+
+  it("should show error if upsert rows throws", async () => {
+    vi.mocked(sdk.upsertRows).mockRejectedValue(new Error("Permission denied"));
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_upsert_rows", {
+      docId: "doc-123",
+      tableIdOrName: "table-456",
+      rows: [{ cells: [{ column: "col1", value: "test" }] }],
+    });
+    expect(result.content).toEqual([{ type: "text", text: "Failed to upsert rows: Error: Permission denied" }]);
+    expect(result.isError).toBe(true);
+  });
+
+  it("should show error if upsert rows throws due to invalid table", async () => {
+    vi.mocked(sdk.upsertRows).mockRejectedValue(new Error("Table not found"));
+
+    const client = await connect(mcpServer.server);
+    const result = await client.callTool("coda_upsert_rows", {
+      docId: "doc-123",
+      tableIdOrName: "nonexistent-table",
+      rows: [{ cells: [{ column: "col1", value: "test" }] }],
+    });
+    expect(result.content).toEqual([{ type: "text", text: "Failed to upsert rows: Error: Table not found" }]);
     expect(result.isError).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 # Coda MCP Server
 
-This project implements a Model Context Protocol (MCP) server that acts as a bridge to interact with the [Coda](https://coda.io/) API. It allows an MCP client (like an AI assistant) to perform actions on Coda pages, such as listing, creating, reading, updating, duplicating, and renaming.
+This project implements a Model Context Protocol (MCP) server that acts as a bridge to interact with the [Coda](https://coda.io/) API. It allows an MCP client (like an AI assistant) to perform actions on Coda pages and tables, such as listing, creating, reading, updating, duplicating, and renaming pages, as well as listing and updating table rows.
 
 ## Features
 
@@ -16,6 +16,9 @@ The server exposes the following tools to the MCP client:
 - **`coda_rename_page`**: Renames an existing page.
 - **`coda_peek_page`**: Peek into the beginning of a page and return a limited number of lines.
 - **`coda_resolve_link`**: Resolve metadata given a browser link to a Coda object.
+- **`coda_list_rows`**: Lists rows from a table with optional filtering, sorting, and pagination support.
+- **`coda_update_row`**: Updates one or more cells in a table row.
+- **`coda_upsert_rows`**: Inserts new rows into a table, or updates existing rows if key columns are provided.
 
 ## Usage
 

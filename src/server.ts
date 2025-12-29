@@ -3,7 +3,16 @@ import { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import z from "zod";
 import packageJson from "../package.json";
 import { getPageContent } from "./client/helpers";
-import { createPage, listDocs, listPages, resolveBrowserLink, updatePage } from "./client/sdk.gen";
+import {
+  createPage,
+  listDocs,
+  listPages,
+  listRows,
+  resolveBrowserLink,
+  updatePage,
+  updateRow,
+  upsertRows,
+} from "./client/sdk.gen";
 
 export const server = new McpServer({
   name: "coda",
@@ -285,6 +294,132 @@ server.tool(
       return { content: [{ type: "text", text: JSON.stringify(resp.data) }] };
     } catch (error) {
       return { content: [{ type: "text", text: `Failed to resolve link: ${error}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "coda_list_rows",
+  "List rows from a table with optional filtering, sorting, and pagination",
+  {
+    docId: z.string().describe("The ID of the document"),
+    tableIdOrName: z.string().describe("The ID or name of the table"),
+    query: z.string().optional().describe("Filter query in format <column>:<value> - optional"),
+    sortBy: z.enum(["createdAt", "natural", "updatedAt"]).optional().describe("Sort order of rows - optional"),
+    valueFormat: z
+      .enum(["simple", "simpleWithArrays", "rich"])
+      .optional()
+      .describe("Format for cell values - optional, defaults to simple"),
+    visibleOnly: z.boolean().optional().describe("Only return visible rows - optional"),
+    limit: z.number().int().positive().optional().describe("Maximum number of rows to return - optional"),
+    pageToken: z.string().optional().describe("Token for pagination - optional"),
+  },
+  async ({ docId, tableIdOrName, query, sortBy, valueFormat, visibleOnly, limit, pageToken }): Promise<
+    CallToolResult
+  > => {
+    try {
+      const resp = await listRows({
+        path: { docId, tableIdOrName },
+        query: {
+          query,
+          sortBy,
+          valueFormat,
+          visibleOnly,
+          limit,
+          pageToken,
+        },
+        throwOnError: true,
+      });
+
+      return { content: [{ type: "text", text: JSON.stringify(resp.data) }] };
+    } catch (error) {
+      return { content: [{ type: "text", text: `Failed to list rows: ${error}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "coda_update_row",
+  "Update cells in a table row",
+  {
+    docId: z.string().describe("The ID of the document"),
+    tableIdOrName: z.string().describe("The ID or name of the table"),
+    rowIdOrName: z.string().describe("The ID or name of the row to update"),
+    cells: z
+      .array(
+        z.object({
+          column: z.string().describe("Column ID or name"),
+          value: z
+            .union([z.string(), z.number(), z.boolean(), z.array(z.union([z.string(), z.number(), z.boolean()]))])
+            .describe("Cell value"),
+        }),
+      )
+      .describe("Array of cells to update"),
+    disableParsing: z.boolean().optional().describe("Disable automatic data parsing - optional"),
+  },
+  async ({ docId, tableIdOrName, rowIdOrName, cells, disableParsing }): Promise<CallToolResult> => {
+    try {
+      const resp = await updateRow({
+        path: { docId, tableIdOrName, rowIdOrName },
+        body: {
+          row: { cells },
+        },
+        query: { disableParsing },
+        throwOnError: true,
+      });
+
+      return { content: [{ type: "text", text: JSON.stringify(resp.data) }] };
+    } catch (error) {
+      return { content: [{ type: "text", text: `Failed to update row: ${error}` }], isError: true };
+    }
+  },
+);
+
+server.tool(
+  "coda_upsert_rows",
+  "Insert new rows into a table, or update existing rows if key columns are provided. Use this to add data to tables.",
+  {
+    docId: z.string().describe("The ID of the document"),
+    tableIdOrName: z.string().describe("The ID or name of the table"),
+    rows: z
+      .array(
+        z.object({
+          cells: z
+            .array(
+              z.object({
+                column: z.string().describe("Column ID or name"),
+                value: z
+                  .union([z.string(), z.number(), z.boolean(), z.array(z.union([z.string(), z.number(), z.boolean()]))])
+                  .describe("Cell value"),
+              }),
+            )
+            .describe("Array of cells for this row"),
+        }),
+      )
+      .describe("Array of rows to insert/upsert"),
+    keyColumns: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Optional column IDs or names to use as upsert keys. If provided, rows matching these columns will be updated instead of inserted.",
+      ),
+    disableParsing: z.boolean().optional().describe("Disable automatic data parsing - optional"),
+  },
+  async ({ docId, tableIdOrName, rows, keyColumns, disableParsing }): Promise<CallToolResult> => {
+    try {
+      const resp = await upsertRows({
+        path: { docId, tableIdOrName },
+        body: {
+          rows,
+          keyColumns,
+        },
+        query: { disableParsing },
+        throwOnError: true,
+      });
+
+      return { content: [{ type: "text", text: JSON.stringify(resp.data) }] };
+    } catch (error) {
+      return { content: [{ type: "text", text: `Failed to upsert rows: ${error}` }], isError: true };
     }
   },
 );
